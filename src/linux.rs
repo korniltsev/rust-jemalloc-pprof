@@ -24,7 +24,9 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 
 use anyhow::Context;
+#[cfg(target_os = "linux")]
 use libc::{c_void, dl_iterate_phdr, dl_phdr_info, size_t, Elf64_Word, PT_LOAD, PT_NOTE};
+
 use once_cell::sync::Lazy;
 use tracing::error;
 
@@ -136,6 +138,7 @@ pub struct LoadedSegment {
 /// (1) It must not be called multiple times concurrently, as `dl_iterate_phdr`
 ///     is not documented as being thread-safe.
 /// (2) The running binary must be in ELF format and running on Linux.
+#[cfg(target_os = "linux")]
 pub unsafe fn collect_shared_objects() -> Result<Vec<SharedObject>, anyhow::Error> {
     let mut state = CallbackState {
         result: Ok(Vec::new()),
@@ -165,6 +168,7 @@ impl CallbackState {
 const CB_RESULT_OK: c_int = 0;
 const CB_RESULT_ERROR: c_int = -1;
 
+#[cfg(target_os = "linux")]
 unsafe extern "C" fn iterate_cb(
     info: *mut dl_phdr_info,
     _size: size_t,
