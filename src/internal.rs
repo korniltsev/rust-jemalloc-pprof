@@ -17,6 +17,7 @@
 //! code used internally by the higher-level convenience functions.
 
 use std::collections::BTreeMap;
+use std::ffi::c_void;
 use std::io::{BufRead, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -120,6 +121,8 @@ impl StackProfile {
         }
 
         let mut location_ids = BTreeMap::new();
+        let mut name_to_func_id = BTreeMap::new(); // name -> id
+        let mut addr_to_func_name = BTreeMap::new();
         for (stack, anno) in self.iter() {
             let mut sample = proto::Sample::default();
 
@@ -150,12 +153,40 @@ impl StackProfile {
                         .iter()
                         .find(|m| m.memory_start <= addr && m.memory_limit > addr)
                         .map_or(0, |m| m.id);
-                    profile.location.push(proto::Location {
+                    let mut loc = proto::Location {
                         id,
                         mapping_id,
                         address: addr,
                         ..Default::default()
+                    };
+
+                    let name = *addr_to_func_name.entry(addr).or_insert_with(|| {
+                        let mut name = 0i64;
+                        backtrace::resolve(  addr as *mut c_void, |symbol| {
+                            if let Some(symbol) = symbol.name() {
+                                let symbol = symbol.as_str().unwrap_or_default();
+                                name = strings.insert(symbol);
+                            }
+                        });
+                        name
                     });
+                    let func_id = name_to_func_id.entry(name).or_insert_with(|| {
+                        let id = u64::cast_from(profile.function.len()) + 1;
+                        profile.function.push(proto::Function {
+                            id,
+                            name,
+                            ..Default::default()
+                        });
+                        id
+                    });
+                    if name != 0 {
+                        loc.line.push(proto::Line {
+                            function_id: *func_id,
+                            ..Default::default()
+                        });
+                    }
+                    profile.location.push(loc);
+
                     id
                 });
 
